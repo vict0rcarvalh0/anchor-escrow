@@ -1,9 +1,9 @@
 import * as anchor from "@coral-xyz/anchor";
 import { BN, Program } from "@coral-xyz/anchor";
 import { AnchorEscrow } from "../target/types/anchor_escrow";
-import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import { randomBytes } from "crypto";
-import { createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount, mintTo, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 describe("anchor-escrow", () => {
   const provider = anchor.AnchorProvider.env();
@@ -12,7 +12,8 @@ describe("anchor-escrow", () => {
   const connection = provider.connection;
   const program = anchor.workspace.AnchorEscrow as Program<AnchorEscrow>;
 
-  const tokenProgram = TOKEN_2022_PROGRAM_ID;
+  const tokenProgram = TOKEN_PROGRAM_ID;
+  const associatedTokenProgram = ASSOCIATED_TOKEN_PROGRAM_ID;
   const seed = new BN(randomBytes(8));
 
   const confirm = async (signature: string): Promise<string> => {
@@ -50,7 +51,7 @@ describe("anchor-escrow", () => {
   let takerAtaB: any;
   let escrow: PublicKey;
   let vault: PublicKey;
-  
+
   let accountsPublicKeys: any = {};
 
   it("setup", async () => {
@@ -118,6 +119,24 @@ describe("anchor-escrow", () => {
       taker.publicKey
     );
 
+    await mintTo(
+      connection,
+      maker,
+      mintA, // mint
+      makerAtaA.address, // destination
+      maker.publicKey, // authority
+      1000000000,
+    );
+
+    await mintTo(
+      connection,
+      maker,
+      mintB, // mint
+      takerAtaB.address, // destination
+      maker.publicKey, // authority
+      1000000000,
+    );
+
     vault = getAssociatedTokenAddressSync(
       mintA,
       escrow,
@@ -137,8 +156,12 @@ describe("anchor-escrow", () => {
       taker_ata_b: takerAtaB,
       escrow: escrow,
       vault: vault,
+      associated_token_program: associatedTokenProgram,
       token_program: tokenProgram,
+      systemProgram: SystemProgram.programId,
     };
+
+    console.log(accountsPublicKeys);
   });
 
   it("make", async () => {
@@ -149,33 +172,16 @@ describe("anchor-escrow", () => {
       maker: accountsPublicKeys["maker"],
       mintA: accountsPublicKeys["mint_a"],
       mintB: accountsPublicKeys["mint_b"],
-      makerAtaA: accountsPublicKeys["maker_ata_a"],
+      makerAtaA: accountsPublicKeys["maker_ata_a"].address,
       escrow: accountsPublicKeys["escrow"],
       vault: accountsPublicKeys["vault"],
+      associatedTokenProgram: accountsPublicKeys["associated_token_program"],
       tokenProgram: accountsPublicKeys["token_program"],
+      systemProgram: accountsPublicKeys["system_program"],
     }
 
     await program.methods
       .make(seed, deposit, receive)
-      .accounts(accounts)
-      .signers([maker])
-      .rpc()
-      .then(confirm)
-      .then(log);
-  });
-
-  it("refund", async () => {
-    const accounts = {
-      maker: accountsPublicKeys["maker"],
-      mintA: accountsPublicKeys["mint_a"],
-      makerAtaA: accountsPublicKeys["maker_ata_a"],
-      escrow: accountsPublicKeys["escrow"],
-      vault: accountsPublicKeys["vault"],
-      tokenProgram: accountsPublicKeys["token_program"],
-    }
-
-    await program.methods
-      .refund()
       .accounts(accounts)
       .signers([maker])
       .rpc()
@@ -189,18 +195,40 @@ describe("anchor-escrow", () => {
       maker: accountsPublicKeys["maker"],
       mintA: accountsPublicKeys["mint_a"],
       mintB: accountsPublicKeys["mint_b"],
-      takerAtaA: accountsPublicKeys["taker_ata_a"],
-      takerAtaB: accountsPublicKeys["taker_ata_b"],
-      makerAtaB: accountsPublicKeys["maker_ata_b"],
+      takerAtaA: accountsPublicKeys["taker_ata_a"].address,
+      takerAtaB: accountsPublicKeys["taker_ata_b"].address,
+      makerAtaB: accountsPublicKeys["maker_ata_b"].address,
       escrow: accountsPublicKeys["escrow"],
       vault: accountsPublicKeys["vault"],
+      associatedTokenProgram: accountsPublicKeys["associated_token_program"],
       tokenProgram: accountsPublicKeys["token_program"],
+      systemProgram: accountsPublicKeys["system_program"],
     }
 
     await program.methods
       .take()
       .accounts(accounts)
       .signers([taker])
+      .rpc()
+      .then(confirm)
+      .then(log);
+  });
+
+  it("refund", async () => {
+    const accounts = {
+      maker: accountsPublicKeys["maker"],
+      mintA: accountsPublicKeys["mint_a"],
+      makerAtaA: accountsPublicKeys["maker_ata_a"].address,
+      escrow: accountsPublicKeys["escrow"],
+      vault: accountsPublicKeys["vault"],
+      associatedTokenProgram: accountsPublicKeys["associated_token_program"],
+      tokenProgram: accountsPublicKeys["token_program"],
+      systemProgram: accountsPublicKeys["system_program"],    }
+
+    await program.methods
+      .refund()
+      .accounts(accounts)
+      .signers([maker])
       .rpc()
       .then(confirm)
       .then(log);
